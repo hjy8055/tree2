@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>테트리스 — 레트로 to 퓨처</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0a;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  font-family: monospace;
+  transition: background 2s ease;
+}
+
+#bg-layer {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  pointer-events: none; z-index: 0;
+  transition: background 2s ease;
+}
+
+.scanline {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  pointer-events: none; z-index: 2;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,0.04) 0px, rgba(0,0,0,0.04) 1px,
+    transparent 1px, transparent 3px
+  );
+  transition: opacity 1.5s;
+}
+
+#particles-canvas {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  pointer-events: none; z-index: 3;
+  opacity: 0;
+  transition: opacity 1.5s;
+}
+
+#game-root {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+  position: relative;
+  z-index: 1;
+}
+
+#info-bar {
+  font-size: 16px;
+  letter-spacing: 4px;
+  color: #aaa;
+  text-align: center;
+  margin-bottom: 12px;
+  transition: all 1.5s;
+}
+
+.game-container {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+#main-canvas {
+  border: 3px solid #444;
+  display: block;
+  transition: border-color 1.5s, box-shadow 1.5s;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 110px;
+}
+
+.panel-box {
+  border: 2px solid #444;
+  padding: 8px;
+  transition: border-color 1.5s, box-shadow 1.5s;
+}
+
+.panel-label {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 4px;
+  letter-spacing: 2px;
+  transition: color 1.5s;
+}
+
+.panel-value {
+  font-size: 20px;
+  font-weight: 500;
+  color: #ccc;
+  transition: color 1.5s;
+}
+
+#next-canvas {
+  border: 1px solid #444;
+  display: block;
+  image-rendering: pixelated;
+  transition: border-color 1.5s;
+}
+
+.btn-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  justify-content: center; margin-top: 10px;
+}
+
+.btn {
+  padding: 7px 18px; font-size: 13px; cursor: pointer;
+  border: 1.5px solid #555; background: transparent;
+  color: #ccc; font-family: monospace;
+  letter-spacing: 1px; transition: all 1.5s;
+}
+.btn:hover { opacity: 0.7; }
+
+.controls-hint {
+  font-size: 11px;
+  color: #555;
+  text-align: center;
+  margin-top: 8px;
+  line-height: 1.9;
+  letter-spacing: 0.5px;
+  transition: color 1.5s;
+}
+
+#level-banner {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 32px;
+  font-weight: 500;
+  padding: 16px 36px;
+  border: 3px solid #555;
+  background: rgba(0,0,0,0.88);
+  color: white;
+  z-index: 999;
+  display: none;
+  text-align: center;
+  letter-spacing: 4px;
+  pointer-events: none;
+  transition: all 0.5s;
+}
+
+#dancer-overlay {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) translateY(-60px);
+  z-index: 998;
+  display: none;
+  width: 160px;
+  height: 220px;
+  pointer-events: none;
+}
+
+#dancer-anim-svg {
+  width: 100%; height: 100%;
+  overflow: visible;
+}
+</style>
+</head>
+<body>
+
+<div class="scanline" id="scanline"></div>
+<canvas id="particles-canvas"></canvas>
+<div id="bg-layer"></div>
+
+<div id="level-banner">LEVEL UP!</div>
+<div id="dancer-overlay">
+  <svg id="dancer-anim-svg" viewBox="0 0 160 220" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+
+<div id="game-root">
+  <div id="info-bar">— TETRIS —</div>
+  <div class="game-container">
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:center;">
+      <canvas id="main-canvas" width="200" height="400"></canvas>
+      <div class="controls-hint" id="controls-hint">
+        ← → 이동 &nbsp;|&nbsp; ↑ 회전<br>↓ 내리기 &nbsp;|&nbsp; Space 즉시 낙하
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btn-start">시작</button>
+        <button class="btn" id="btn-pause">일시정지</button>
+      </div>
+    </div>
+    <div class="side-panel">
+      <div class="panel-box" id="next-box">
+        <div class="panel-label">NEXT</div>
+        <canvas id="next-canvas" width="80" height="80"></canvas>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">SCORE</div>
+        <div class="panel-value" id="score-display">0</div>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">LINES</div>
+        <div class="panel-value" id="lines-display">0</div>
+      </div>
+      <div class="panel-box">
+        <div class="panel-label">LEVEL</div>
+        <div class="panel-value" id="level-display">1</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+
+// =============================================
+//  상수 & 캔버스
+// =============================================
+const COLS = 10, ROWS = 20, CELL = 20;
+
+const canvas   = document.getElementById('main-canvas');
+const ctx      = canvas.getContext('2d');
+const nextCanvas = document.getElementById('next-canvas');
+const nctx     = nextCanvas.getContext('2d');
+
+// =============================================
+//  테트로미노 정의
+// =============================================
+const PIECES = [
+  { shape: [[1,1,1,1]],           color: '#00bcd4' }, // I
+  { shape: [[1,1],[1,1]],         color: '#ffeb3b' }, // O
+  { shape: [[0,1,0],[1,1,1]],     color: '#9c27b0' }, // T
+  { shape: [[1,0,0],[1,1,1]],     color: '#ff9800' }, // J
+  { shape: [[0,0,1],[1,1,1]],     color: '#2196f3' }, // L
+  { shape: [[0,1,1],[1,1,0]],     color: '#4caf50' }, // S
+  { shape: [[1,1,0],[0,1,1]],     color: '#f44336' }, // Z
+];
+
+// =============================================
+//  레벨별 테마
+// =============================================
+const THEMES = {
+  1: { bg:'#0a0a0a', border:'#444', scanlines:1.0, particles:0, glow:'none' },
+  2: { bg:'#080c0a', border:'#556655', scanlines:0.9, particles:0, glow:'none' },
+  3: { bg:'#06080e', border:'#334466', scanlines:0.7, particles:0.2, glow:'0 0 8px #1144aa44' },
+  4: { bg:'#030510', border:'#2244aa', scanlines:0.4, particles:0.5, glow:'0 0 15px #2255cc88' },
+  5: { bg:'#010215', border:'#4400cc', scanlines:0.1, particles:1.0, glow:'0 0 25px #6600ff99' },
+};
+
+function getTheme() {
+  return THEMES[Math.min(currentLevel, 5)];
+}
+
+// =============================================
+//  게임 상태
+// =============================================
+let board, score, lines, currentLevel;
+let currentPiece, nextPiece;
+let gameLoop, paused = false, gameOver = false, started = false;
+
+// =============================================
+//  파티클 시스템
+// =============================================
+const pcanvas = document.getElementById('particles-canvas');
+const pctx    = pcanvas.getContext('2d');
+let particlesList = [];
+let particleActive = false;
+
+function resizeParticleCanvas() {
+  pcanvas.width  = window.innerWidth;
+  pcanvas.height = window.innerHeight;
+}
+resizeParticleCanvas();
+window.addEventListener('resize', resizeParticleCanvas);
+
+function startParticles() {
+  if (particleActive) return;
+  particleActive = true;
+  for (let i = 0; i < 60; i++) {
+    particlesList.push({
+      x:     Math.random() * window.innerWidth,
+      y:     Math.random() * window.innerHeight,
+      vx:    (Math.random() - 0.5) * 0.8,
+      vy:    -Math.random() * 0.5 - 0.2,
+      size:  Math.random() * 2 + 0.5,
+      alpha: Math.random(),
+      color: ['#aa88ff','#6688ff','#44aaff','#ff88ff'][Math.floor(Math.random()*4)],
+    });
+  }
+  animateParticles();
+}
+
+function animateParticles() {
+  if (!particleActive) return;
+  pctx.clearRect(0, 0, pcanvas.width, pcanvas.height);
+  particlesList.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.y < 0) { p.y = window.innerHeight; p.x = Math.random() * window.innerWidth; }
+    if (p.x < 0 || p.x > window.innerWidth) p.x = Math.random() * window.innerWidth;
+    pctx.globalAlpha = p.alpha * 0.7;
+    pctx.fillStyle   = p.color;
+    pctx.beginPath();
+    pctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    pctx.fill();
+  });
+  pctx.globalAlpha = 1;
+  requestAnimationFrame(animateParticles);
+}
+
+// =============================================
+//  러시아 무용수 애니메이션
+// =============================================
+const dancerSvg     = document.getElementById('dancer-anim-svg');
+const dancerOverlay = document.getElementById('dancer-overlay');
+
+function showDancer(level) {
+  dancerOverlay.style.display = 'block';
+  let frame = 0;
+  const maxFrames = 90;
+
+  const isDigi = level >= 4;
+  const isNeo  = level >= 5;
+
+  const bodyColor  = isNeo ? '#bb88ff' : isDigi ? '#4488ff' : '#e8d5a0';
+  const dressColor = isNeo ? '#8844dd' : isDigi ? '#2255cc' : '#cc2244';
+  const hairColor  = isNeo ? '#ff88ff' : isDigi ? '#88aaff' : '#222233';
+  const skinColor  = isNeo ? '#ddbbff' : isDigi ? '#aaccff' : '#f5c9a0';
+  const accentColor= isNeo ? '#ffaaff' : isDigi ? '#66aaff' : '#ffcc44';
+
+  function drawFrame(f) {
+    const bounce = Math.sin(f * 0.30) * 12;
+    const armL   = Math.sin(f * 0.25) * 40;
+    const armR   = -Math.sin(f * 0.25 + 1) * 40;
+    const legL   = Math.sin(f * 0.20) * 25;
+    const legR   = -Math.sin(f * 0.20) * 25;
+    const sway   = Math.sin(f * 0.15) * 6;
+
+    const cx    = 80 + sway;
+    const headY = 40 + bounce;
+    const bodyY = headY + 28;
+    const waistY= bodyY + 30;
+
+    let svg = `
+    <defs>
+      <radialGradient id="glo" cx="50%" cy="30%" r="60%">
+        <stop offset="0%" stop-color="${accentColor}" stop-opacity="0.3"/>
+        <stop offset="100%" stop-color="${accentColor}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>`;
+
+    // 배경 글로우 (네오 레벨)
+    if (isNeo) {
+      svg += `<ellipse cx="${cx}" cy="110" rx="50" ry="80" fill="url(#glo)"/>`;
+      for (let i = 0; i < 6; i++) {
+        const gy = 20 + i * 30 + (f * 2 % 30);
+        svg += `<line x1="10" y1="${gy}" x2="150" y2="${gy}"
+          stroke="${accentColor}" stroke-opacity="0.1" stroke-width="0.5"/>`;
+      }
+    }
+
+    // 다리
+    svg += `<line x1="${cx-5}" y1="${waistY}" x2="${cx-8+legL*0.3}" y2="${waistY+45}"
+      stroke="${bodyColor}" stroke-width="7" stroke-linecap="round"/>`;
+    svg += `<line x1="${cx+5}" y1="${waistY}" x2="${cx+8+legR*0.3}" y2="${waistY+45}"
+      stroke="${bodyColor}" stroke-width="7" stroke-linecap="round"/>`;
+
+    // 신발
+    svg += `<ellipse cx="${cx-8+legL*0.3}" cy="${waistY+49}" rx="8" ry="5" fill="${dressColor}"/>`;
+    svg += `<ellipse cx="${cx+8+legR*0.3}" cy="${waistY+49}" rx="8" ry="5" fill="${dressColor}"/>`;
+
+    // 스커트
+    svg += `<polygon
+      points="${cx-18},${waistY} ${cx+18},${waistY} ${cx+25},${waistY+30} ${cx-25},${waistY+30}"
+      fill="${dressColor}" opacity="0.9"/>`;
+
+    // 몸통
+    svg += `<rect x="${cx-12}" y="${bodyY}" width="24" height="32" rx="6" fill="${bodyColor}"/>`;
+
+    // 팔 (왼쪽)
+    const lax2 = cx - 12 + Math.cos((armL - 90) * Math.PI / 180) * 32;
+    const lay2 = bodyY + 8 + Math.sin(armL * Math.PI / 180) * 20 + 10;
+    svg += `<line x1="${cx-12}" y1="${bodyY+8}" x2="${lax2}" y2="${lay2}"
+      stroke="${bodyColor}" stroke-width="7" stroke-linecap="round"/>`;
+
+    // 팔 (오른쪽)
+    const rax2 = cx + 12 + Math.cos((armR + 90) * Math.PI / 180) * 32;
+    const ray2 = bodyY + 8 + Math.sin((armR + 180) * Math.PI / 180) * 20 + 10;
+    svg += `<line x1="${cx+12}" y1="${bodyY+8}" x2="${rax2}" y2="${ray2}"
+      stroke="${bodyColor}" stroke-width="7" stroke-linecap="round"/>`;
+
+    // 손
+    svg += `<circle cx="${lax2}" cy="${lay2}" r="5" fill="${skinColor}"/>`;
+    svg += `<circle cx="${rax2}" cy="${ray2}" r="5" fill="${skinColor}"/>`;
+
+    // 목
+    svg += `<rect x="${cx-4}" y="${headY+18}" width="8" height="10" rx="3" fill="${skinColor}"/>`;
+
+    // 머리
+    svg += `<ellipse cx="${cx}" cy="${headY+10}" rx="14" ry="17" fill="${skinColor}"/>`;
+
+    // 머리카락
+    if (!isDigi) {
+      // 전통 스타일
+      svg += `<ellipse cx="${cx}" cy="${headY}" rx="14" ry="10" fill="${hairColor}"/>`;
+      svg += `<ellipse cx="${cx-10}" cy="${headY+6}" rx="7" ry="12" fill="${hairColor}"/>`;
+      svg += `<ellipse cx="${cx+10}" cy="${headY+6}" rx="7" ry="12" fill="${hairColor}"/>`;
+    } else {
+      // 디지털 스타일
+      svg += `<rect x="${cx-14}" y="${headY-8}" width="28" height="12" rx="4" fill="${hairColor}" opacity="0.9"/>`;
+      for (let i = 0; i < 5; i++) {
+        svg += `<rect x="${cx-12+i*5}" y="${headY-14}" width="3" height="8" rx="1"
+          fill="${accentColor}" opacity="${(0.5+i*0.1).toFixed(1)}"/>`;
+      }
+    }
+
+    // 얼굴 표정
+    svg += `<circle cx="${cx-5}" cy="${headY+9}" r="2" fill="${isDigi ? accentColor : '#333'}"/>`;
+    svg += `<circle cx="${cx+5}" cy="${headY+9}" r="2" fill="${isDigi ? accentColor : '#333'}"/>`;
+    svg += `<path d="M${cx-4},${headY+16} Q${cx},${headY+20} ${cx+4},${headY+16}"
+      stroke="${isDigi ? accentColor : '#cc5566'}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+
+    // 네오 오라
+    if (isNeo) {
+      svg += `<ellipse cx="${cx}" cy="${headY+10}" rx="18" ry="22"
+        fill="none" stroke="${accentColor}" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>`;
+    }
+
+    // 디지털 에너지 파티클
+    if (isDigi) {
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * 360 + f * 3;
+        const px = cx + Math.cos(angle * Math.PI / 180) * 45;
+        const py = 110 + Math.sin(angle * Math.PI / 180) * 55;
+        const r  = (2 + Math.sin(f * 0.3 + i) * 1.5).toFixed(1);
+        svg += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r}"
+          fill="${accentColor}" opacity="0.7"/>`;
+      }
+    }
+
+    dancerSvg.innerHTML = svg;
+  }
+
+  const interval = setInterval(() => {
+    drawFrame(frame);
+    frame++;
+    if (frame >= maxFrames) {
+      clearInterval(interval);
+      setTimeout(() => {
+        dancerOverlay.style.display = 'none';
+        dancerSvg.innerHTML = '';
+      }, 300);
+    }
+  }, 33);
+}
+
+// =============================================
+//  테마 적용
+// =============================================
+function applyTheme() {
+  const th = getTheme();
+  document.getElementById('bg-layer').style.background = th.bg;
+  document.getElementById('scanline').style.opacity    = th.scanlines;
+  document.getElementById('particles-canvas').style.opacity = th.particles;
+
+  canvas.style.borderColor = th.border;
+  canvas.style.boxShadow   = th.glow;
+  nextCanvas.style.borderColor = th.border;
+
+  document.querySelectorAll('.panel-box').forEach(b => b.style.borderColor = th.border);
+  document.querySelectorAll('.btn').forEach(b => b.style.borderColor = th.border);
+
+  const infoBar = document.getElementById('info-bar');
+  if (currentLevel >= 5)      infoBar.textContent = '◈ TETRIS NEXUS ◈';
+  else if (currentLevel >= 4) infoBar.textContent = '◆ TETRIS ◆';
+  else                        infoBar.textContent = '— TETRIS —';
+
+  if (currentLevel >= 5) startParticles();
+}
+
+// =============================================
+//  보드 & 피스 유틸
+// =============================================
+function newBoard() {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+}
+
+function randPiece() {
+  const p = PIECES[Math.floor(Math.random() * PIECES.length)];
+  return {
+    shape: p.shape.map(r => [...r]),
+    color: p.color,
+    x: Math.floor(COLS / 2) - 1,
+    y: 0,
+  };
+}
+
+function rotate(shape) {
+  const R = shape.length, C = shape[0].length;
+  return Array.from({ length: C }, (_, i) =>
+    Array.from({ length: R }, (_, j) => shape[R - 1 - j][i])
+  );
+}
+
+function valid(piece, board, ox = 0, oy = 0, shape = null) {
+  const s = shape || piece.shape;
+  for (let r = 0; r < s.length; r++) {
+    for (let c = 0; c < s[r].length; c++) {
+      if (!s[r][c]) continue;
+      const nx = piece.x + c + ox, ny = piece.y + r + oy;
+      if (nx < 0 || nx >= COLS || ny >= ROWS) return false;
+      if (ny >= 0 && board[ny][nx]) return false;
+    }
+  }
+  return true;
+}
+
+function place(piece, board) {
+  piece.shape.forEach((row, r) =>
+    row.forEach((v, c) => {
+      if (v) board[piece.y + r][piece.x + c] = piece.color;
+    })
+  );
+}
+
+function clearLines(board) {
+  let cleared = 0;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board[r].every(c => c)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(0));
+      cleared++;
+      r++;
+    }
+  }
+  return cleared;
+}
+
+// =============================================
+//  그리기
+// =============================================
+function drawBlock(ctx2d, x, y, color, cell) {
+  if (currentLevel >= 3) {
+    ctx2d.shadowBlur  = 8 + currentLevel * 2;
+    ctx2d.shadowColor = color;
+  }
+  ctx2d.fillStyle = color;
+  ctx2d.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+  ctx2d.shadowBlur = 0;
+
+  if (currentLevel <= 2) {
+    // 레트로 광택
+    ctx2d.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx2d.fillRect(x * cell + 2, y * cell + 2, cell - 4, 4);
+  }
+  if (currentLevel >= 4) {
+    // 디지털 격자선
+    ctx2d.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx2d.lineWidth   = 0.5;
+    ctx2d.strokeRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
+  }
+}
+
+function drawBoard() {
+  const th = getTheme();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 배경
+  ctx.fillStyle = th.bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 격자
+  ctx.strokeStyle = currentLevel >= 4
+    ? 'rgba(80,80,180,0.2)'
+    : 'rgba(80,80,80,0.15)';
+  ctx.lineWidth = 0.5;
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      ctx.strokeRect(c * CELL, r * CELL, CELL, CELL);
+
+  // 쌓인 블록
+  board.forEach((row, r) =>
+    row.forEach((color, c) => { if (color) drawBlock(ctx, c, r, color, CELL); })
+  );
+
+  // 고스트 피스
+  if (currentPiece) {
+    let ghost = { ...currentPiece, shape: currentPiece.shape.map(r => [...r]) };
+    while (valid(ghost, board, 0, 1)) ghost.y++;
+    if (ghost.y !== currentPiece.y) {
+      ghost.shape.forEach((row, r) =>
+        row.forEach((v, c) => {
+          if (v) {
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillRect((ghost.x + c) * CELL + 1, (ghost.y + r) * CELL + 1, CELL - 2, CELL - 2);
+          }
+        })
+      );
+    }
+    // 현재 피스
+    currentPiece.shape.forEach((row, r) =>
+      row.forEach((v, c) => {
+        if (v) drawBlock(ctx, currentPiece.x + c, currentPiece.y + r, currentPiece.color, CELL);
+      })
+    );
+  }
+
+  // 오버레이 메시지
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = currentLevel >= 4 ? '#bb88ff' : '#eee';
+    ctx.font = `18px ${currentLevel >= 4 ? "'Courier New',monospace" : 'monospace'}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 10);
+    ctx.font = '13px monospace';
+    ctx.fillStyle = '#777';
+    ctx.fillText('시작 버튼을 누르세요', canvas.width / 2, canvas.height / 2 + 18);
+    ctx.textAlign = 'left';
+  }
+  if (!started && !gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ccc';
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('시작을 눌러주세요', canvas.width / 2, canvas.height / 2);
+    ctx.textAlign = 'left';
+  }
+}
+
+function drawNext() {
+  const th = getTheme();
+  nctx.clearRect(0, 0, 80, 80);
+  nctx.fillStyle = th.bg;
+  nctx.fillRect(0, 0, 80, 80);
+  if (!nextPiece) return;
+  const s   = nextPiece.shape;
+  const off = Math.floor((4 - s.length) / 2);
+  s.forEach((row, r) =>
+    row.forEach((v, c) => { if (v) drawBlock(nctx, c + off + 1, r + off + 1, nextPiece.color, 16); })
+  );
+}
+
+function updateUI() {
+  document.getElementById('score-display').textContent = score;
+  document.getElementById('lines-display').textContent = lines;
+  document.getElementById('level-display').textContent = currentLevel;
+}
+
+// =============================================
+//  레벨업 연출
+// =============================================
+let levelBannerTO;
+
+function showLevelUp() {
+  applyTheme();
+  const banner = document.getElementById('level-banner');
+  const th     = getTheme();
+  banner.style.borderColor = th.border;
+  banner.style.color = currentLevel >= 5 ? '#bb88ff' : currentLevel >= 3 ? '#88aaff' : '#fff';
+  banner.textContent   = `LEVEL ${currentLevel}`;
+  banner.style.display = 'block';
+  clearTimeout(levelBannerTO);
+  levelBannerTO = setTimeout(() => { banner.style.display = 'none'; }, 2200);
+  showDancer(currentLevel);
+}
+
+// =============================================
+//  게임 루프
+// =============================================
+function drop() {
+  if (paused || gameOver) return;
+  if (valid(currentPiece, board, 0, 1)) {
+    currentPiece.y++;
+  } else {
+    place(currentPiece, board);
+    const cleared = clearLines(board);
+    if (cleared) {
+      score += [0, 100, 300, 500, 800][cleared] * currentLevel;
+      lines += cleared;
+      const newLevel = Math.floor(lines / 10) + 1;
+      if (newLevel > currentLevel) {
+        currentLevel = newLevel;
+        showLevelUp();
+      }
+    }
+    currentPiece = nextPiece;
+    nextPiece    = randPiece();
+    if (!valid(currentPiece, board)) {
+      gameOver = true;
+      clearTimeout(gameLoop);
+    }
+  }
+  updateUI();
+  drawBoard();
+  drawNext();
+}
+
+function getSpeed() {
+  return Math.max(100, 700 - (currentLevel - 1) * 60);
+}
+
+function tick() {
+  drop();
+  clearTimeout(gameLoop);
+  if (!gameOver) gameLoop = setTimeout(tick, getSpeed());
+}
+
+function startGame() {
+  board         = newBoard();
+  score         = 0;
+  lines         = 0;
+  currentLevel  = 1;
+  gameOver      = false;
+  paused        = false;
+  started       = true;
+  currentPiece  = randPiece();
+  nextPiece     = randPiece();
+  clearTimeout(gameLoop);
+  applyTheme();
+  gameLoop = setTimeout(tick, getSpeed());
+  updateUI();
+  drawBoard();
+  drawNext();
+  document.getElementById('btn-pause').textContent = '일시정지';
+}
+
+// =============================================
+//  버튼 이벤트
+// =============================================
+document.getElementById('btn-start').addEventListener('click', startGame);
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+  if (!started || gameOver) return;
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? '계속' : '일시정지';
+  if (!paused) gameLoop = setTimeout(tick, getSpeed());
+});
+
+// =============================================
+//  키보드 조작
+// =============================================
+document.addEventListener('keydown', e => {
+  if (!started || paused || gameOver) return;
+  switch (e.key) {
+    case 'ArrowLeft':
+      if (valid(currentPiece, board, -1, 0)) { currentPiece.x--; drawBoard(); }
+      e.preventDefault(); break;
+    case 'ArrowRight':
+      if (valid(currentPiece, board, 1, 0))  { currentPiece.x++; drawBoard(); }
+      e.preventDefault(); break;
+    case 'ArrowDown':
+      drop(); e.preventDefault(); break;
+    case 'ArrowUp': {
+      const r = rotate(currentPiece.shape);
+      if (valid(currentPiece, board, 0, 0, r)) { currentPiece.shape = r; drawBoard(); }
+      e.preventDefault(); break;
+    }
+    case ' ':
+      while (valid(currentPiece, board, 0, 1)) currentPiece.y++;
+      drop(); e.preventDefault(); break;
+  }
+});
+
+// =============================================
+//  터치 조작 (모바일)
+// =============================================
+let touchStartX, touchStartY;
+
+canvas.addEventListener('touchstart', e => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (!started || paused || gameOver) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 20  && valid(currentPiece, board, 1, 0))  { currentPiece.x++; drawBoard(); }
+    if (dx < -20 && valid(currentPiece, board, -1, 0)) { currentPiece.x--; drawBoard(); }
+  } else {
+    if (dy > 20) drop();
+    else if (dy < -20) {
+      const r = rotate(currentPiece.shape);
+      if (valid(currentPiece, board, 0, 0, r)) { currentPiece.shape = r; drawBoard(); }
+    }
+  }
+  e.preventDefault();
+}, { passive: false });
+
+// =============================================
+//  초기화
+// =============================================
+applyTheme();
+drawBoard();
+drawNext();
+
+})();
+</script>
+</body>
+</html>
